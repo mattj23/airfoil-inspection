@@ -1,0 +1,12 @@
+[package]
+name = "airfoil"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+ncollide2d = "0.33"
+nalgebra = "0.32"
+serde = { version="1.0", features=["derive"]}
+serde_json = "1.0"
