@@ -30,24 +30,33 @@ fn main() {
     let p0 = &hull.points()[i0];
     let p1 = &hull.points()[i1];
     let rough_chord = Ray::new(*p0, p1 - p0);
-    let rotate_90 = Isometry2::rotation(PI / 2.0);
-    let rough_n = rotate_90 * rough_chord.dir.normalize();
 
     println!("Max distance ({:?}, {:?}): {}", p0, p1, dist_2d(p0, p1));
-    for i in 1..10 {
-        let ray = Ray::new(rough_chord.point_at(i as f64 / 10.0), rough_n);
-        let ints = intersections(&ray, &poly);
-        print!("Ray {}: ", i);
-        for p in ints {
-            print!("{:?} ", p);
-        }
-        print!("\n");
+    let rough_crosses = rough_cross_segments(&rough_chord, &poly, 20);
+    for seg in rough_crosses {
+        println!("{:?}", seg);
     }
-
 
 }
 
-fn intersection_param(a0: &Point2<f64>, ad: &Vector2<f64>, b0: &Point2<f64>, bd: &Vector2<f64>) -> Option<f64> {
+fn rough_cross_segments(rough_chord: &Ray<f64>, poly: &Polyline<f64>, n: usize) -> Vec<Segment<f64>> {
+    let mut result: Vec<Segment<f64>> = Vec::new();
+    let rotate_90 = Isometry2::rotation(PI / 2.0);
+    let rough_n = rotate_90 * rough_chord.dir.normalize();
+    for i in 1..n {
+        let p = rough_chord.point_at(i as f64 / n as f64);
+        let cross_ray = Ray::new(p, rough_n);
+        let ints = intersections(&cross_ray, &poly);
+
+        if ints.len() == 2 {
+            result.push(Segment::new(ints[0], ints[1]));
+        }
+    }
+
+    result
+}
+
+fn intersection_param(a0: &Point2<f64>, ad: &Vector2<f64>, b0: &Point2<f64>, bd: &Vector2<f64>) -> Option<(f64, f64)> {
     let det: f64 = bd.x * ad.y - bd.y * ad.x;
     if det.abs() < 1e-6 {
         return Option::None;
@@ -56,7 +65,7 @@ fn intersection_param(a0: &Point2<f64>, ad: &Vector2<f64>, b0: &Point2<f64>, bd:
     let dx = b0.x - a0.x;
     let dy = b0.y - a0.y;
 
-    Some((dy * bd.x - dx * bd.y) / det)
+    Some(((dy * bd.x - dx * bd.y) / det, (dy * ad.x - dx * ad.y) / det))
 }
 
 fn intersections(ray: &Ray<f64>, poly: &Polyline<f64>) -> Vec<Point2<f64>> {
@@ -67,9 +76,9 @@ fn intersections(ray: &Ray<f64>, poly: &Polyline<f64>) -> Vec<Point2<f64>> {
         let d = p1 - p0;
         let param = intersection_param(&p0, &d, &ray.origin, &ray.dir);
         if param.is_some() {
-            let f = param.unwrap();
-            if 0.0 <= f  && f <= 1.0 {
-                results.push(ray.origin + ray.dir * param.unwrap());
+            let (u, v) = param.unwrap();
+            if 0.0 <= u  && u <= 1.0 {
+                results.push(ray.origin + ray.dir * v);
             }
         }
     }
