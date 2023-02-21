@@ -1,3 +1,4 @@
+use nalgebra::Point;
 use ncollide2d::bounding_volume::AABB;
 use ncollide2d::na::{Isometry2, Point2, RealField, Vector2};
 use ncollide2d::partitioning::BVH;
@@ -45,6 +46,110 @@ pub fn ray_intersect_aabb<N: RealField + Copy>(b: &AABB<N>, r: &Ray<N>) -> bool 
     t_max >= t_min
 }
 
+fn aabb_points<N: RealField + Copy>(b: &AABB<N>) -> [&Point2<N>; 4] {
+    [
+        &b.maxs,
+        &b.mins,
+        &Point2::new(b.mins.x, b.maxs.y),
+        &Point2::new(b.maxs.x, b.mins.y),
+    ]
+}
+
+pub fn closest_distance<N: RealField + Copy>(
+    b: &AABB<N>,
+    p: &Point2<N>,
+    dir: &Option<Vector2<N>>,
+) -> Option<N> {
+    if b.contains_local_point(&p) {
+        return Some(N::from_f64(0.0));
+    }
+
+    let mut result: Option<N> = None;
+
+    // TODO: Closest point in the direction of dir
+
+    for corner in aabb_points(&b) {
+        if dir.is_none() || dir.unwrap().dot(&(corner - p)) {
+            let d = dist(&p, &corner);
+            if result.is_none() || result.unwrap() < d {
+                result = Some(d);
+            }
+        }
+    }
+
+    result
+}
+
+pub fn farthest_distance<N: RealField + Copy>(
+    b: &AABB<N>,
+    p: &Point2<N>,
+    dir: &Option<Vector2<N>>,
+) -> Option<N> {
+    let mut result: Option<N> = None;
+
+    for corner in aabb_points(&b) {
+        if dir.is_none() || dir.unwrap().dot(&(corner - p)) {
+            let d = dist(&p, &corner);
+            if result.is_none() || result.unwrap() < d {
+                result = Some(d);
+            }
+        }
+    }
+
+    result
+}
+
+struct DistResult<N: RealField + Copy, T: Clone> {
+    item: T,
+    closest: N,
+    farthest: N,
+}
+
+pub struct FarthestPointVisitor<'a, N: 'a + RealField + Copy, T: 'a> {
+    pub point: &'a Point2<N>,
+    pub direction: &'a Option<Vector2<N>>,
+    pub buffer: &'a Vec<DistResult<N, T>>,
+    pub largest_closest: f64,
+}
+
+impl<'a, N: RealField + Copy, T: Clone> FarthestPointVisitor<'a, N, T> {
+    pub fn new(
+        point: &'a Point2<N>,
+        direction: &'a Option<Vector2<N>>,
+        buffer: &'a Vec<DistResult<N, T>>,
+    ) -> FarthestPointVisitor<'a, N, T> {
+        FarthestPointVisitor {
+            point,
+            direction,
+            buffer,
+            largest_closest: 0.0,
+        }
+    }
+}
+
+impl<'a, N, T> Visitor<T, AABB<N>> for FarthestPointVisitor<'a, N, T>
+where
+    N: RealField + Copy,
+    T: Clone,
+{
+    fn visit(&mut self, bv: &AABB<N>, t: Option<&T>) -> VisitStatus {
+        let farthest = farthest_distance(&bv, self.point, self.direction);
+        let closest = closest_distance(&bv, self.point, self.direction);
+
+        if ray_intersect_aabb(bv, self.ray) {
+            if let Some(t) = t {
+                self.collector.push(t.clone());
+            }
+
+            VisitStatus::Continue
+        } else {
+            VisitStatus::Stop
+        }
+    }
+}
+
+/// A visitor which traverses a BVH looking for intersections with a ray. Different from the
+/// RayInterferenceCollector because it does not filter out intersections at negative parameters
 pub struct RayVisitor<'a, N: 'a + RealField + Copy, T: 'a> {
     pub ray: &'a Ray<N>,
     pub collector: &'a mut Vec<T>,
@@ -110,6 +215,7 @@ pub fn intersections<N: RealField + Copy>(polyline: &Polyline<N>, ray: &Ray<N>) 
 
     results
 }
+
 #[cfg(test)]
 mod tests {
     use crate::tools2d::ray_intersect_aabb;
