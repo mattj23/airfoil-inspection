@@ -1,11 +1,15 @@
+mod closed_polyline;
+
 use nalgebra::{Point, Point3};
 use ncollide2d::na::{Isometry2, Point2, Vector2};
+use ncollide2d::query::{Ray, RayCast};
 use ncollide2d::shape::{ConvexPolygon, Polyline, Segment};
 use serde::{Deserialize, Serialize};
 use serde_json::Result;
-use std::fs;
-use ncollide2d::query::{Ray, RayCast};
 use std::f64::consts::PI;
+use std::fs;
+
+use closed_polyline::{dist, ClosedPolyline};
 
 fn main() {
     let data = fs::read_to_string("/home/matt/working/airfoil/data/E-E.json")
@@ -15,31 +19,43 @@ fn main() {
 
     let nominal_3d = points_from_string(&input.nominal).unwrap();
     let mut nominal_2d = to_point2(&nominal_3d);
+
+    // Remove adjacent duplicates and then copy the first point to the end in order to close the
+    // loop
     remove_adjacent_duplicates(&mut nominal_2d);
+    nominal_2d.push(nominal_2d.first().unwrap().clone());
 
-    let poly: Polyline<f64> = Polyline::new(nominal_2d, Option::None);
-    let hull: ConvexPolygon<f64> = ConvexPolygon::try_from_points(&poly.points())
-        .expect("Couldn't generate convex polygon");
-
-    println!("{:?}", hull);
-    println!("Polyline: {}", poly.points().len());
-    println!("Hull: {}", hull.points().len());
-
-    // Farthest pair
-    let (i0, i1) = farthest_pair(&hull);
-    let p0 = &hull.points()[i0];
-    let p1 = &hull.points()[i1];
-    let rough_chord = Ray::new(*p0, p1 - p0);
-
-    println!("Max distance ({:?}, {:?}): {}", p0, p1, dist_2d(p0, p1));
-    let rough_crosses = rough_cross_segments(&rough_chord, &poly, 20);
-    for seg in rough_crosses {
-        println!("{:?}", seg);
+    let closed = ClosedPolyline::new(&nominal_2d, Some(1e-4)).unwrap();
+    for p in closed.line.points().iter() {
+        println!("{:?}", p);
     }
 
+    // let poly: Polyline<f64> = Polyline::new(nominal_2d, Option::None);
+    // let hull: ConvexPolygon<f64> =
+    //     ConvexPolygon::try_from_points(&poly.points()).expect("Couldn't generate convex polygon");
+    //
+    // println!("{:?}", hull);
+    // println!("Polyline: {}", poly.points().len());
+    // println!("Hull: {}", hull.points().len());
+    //
+    // // Farthest pair
+    // let (i0, i1) = farthest_pair(&hull);
+    // let p0 = &hull.points()[i0];
+    // let p1 = &hull.points()[i1];
+    // let rough_chord = Ray::new(*p0, p1 - p0);
+    //
+    // println!("Max distance ({:?}, {:?}): {}", p0, p1, dist_2d(p0, p1));
+    // let rough_crosses = rough_cross_segments(&rough_chord, &poly, 20);
+    // for seg in rough_crosses {
+    //     println!("{:?}", seg);
+    // }
 }
 
-fn rough_cross_segments(rough_chord: &Ray<f64>, poly: &Polyline<f64>, n: usize) -> Vec<Segment<f64>> {
+fn rough_cross_segments(
+    rough_chord: &Ray<f64>,
+    poly: &Polyline<f64>,
+    n: usize,
+) -> Vec<Segment<f64>> {
     let mut result: Vec<Segment<f64>> = Vec::new();
     let rotate_90 = Isometry2::rotation(PI / 2.0);
     let rough_n = rotate_90 * rough_chord.dir.normalize();
@@ -56,7 +72,12 @@ fn rough_cross_segments(rough_chord: &Ray<f64>, poly: &Polyline<f64>, n: usize) 
     result
 }
 
-fn intersection_param(a0: &Point2<f64>, ad: &Vector2<f64>, b0: &Point2<f64>, bd: &Vector2<f64>) -> Option<(f64, f64)> {
+fn intersection_param(
+    a0: &Point2<f64>,
+    ad: &Vector2<f64>,
+    b0: &Point2<f64>,
+    bd: &Vector2<f64>,
+) -> Option<(f64, f64)> {
     let det: f64 = bd.x * ad.y - bd.y * ad.x;
     if det.abs() < 1e-6 {
         return Option::None;
@@ -77,7 +98,7 @@ fn intersections(ray: &Ray<f64>, poly: &Polyline<f64>) -> Vec<Point2<f64>> {
         let param = intersection_param(&p0, &d, &ray.origin, &ray.dir);
         if param.is_some() {
             let (u, v) = param.unwrap();
-            if 0.0 <= u  && u <= 1.0 {
+            if 0.0 <= u && u <= 1.0 {
                 results.push(ray.origin + ray.dir * v);
             }
         }
@@ -106,8 +127,7 @@ fn farthest_pair(hull: &ConvexPolygon<f64>) -> (usize, usize) {
     (i0, i1)
 }
 
-fn points_from_string(s: &str) -> Result<Vec<Point3<f64>>>
-{
+fn points_from_string(s: &str) -> Result<Vec<Point3<f64>>> {
     let mut raw_points: Vec<Point3<f64>> = Vec::new();
     for token in s.split(";") {
         let mut pieces: [f64; 3] = [Default::default(); 3];
@@ -122,8 +142,7 @@ fn points_from_string(s: &str) -> Result<Vec<Point3<f64>>>
     Ok(raw_points)
 }
 
-fn to_point2(points: &Vec<Point3<f64>>) -> Vec<Point2<f64>>
-{
+fn to_point2(points: &Vec<Point3<f64>>) -> Vec<Point2<f64>> {
     let mut converted: Vec<Point2<f64>> = Vec::new();
     // TODO: actual plane discovery and projection
     for point in points {
@@ -132,8 +151,7 @@ fn to_point2(points: &Vec<Point3<f64>>) -> Vec<Point2<f64>>
     converted
 }
 
-fn remove_adjacent_duplicates(points: &mut Vec<Point2<f64>>)
-{
+fn remove_adjacent_duplicates(points: &mut Vec<Point2<f64>>) {
     points.dedup_by(|a, b| dist_2d(a, b) < 1e-6);
     if dist_2d(points.first().unwrap(), points.last().unwrap()) < 1e-6 {
         points.pop();
