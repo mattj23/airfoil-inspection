@@ -1,4 +1,5 @@
 mod closed_polyline;
+mod tools2d;
 
 use nalgebra::{Point, Point3};
 use ncollide2d::na::{Isometry2, Point2, Vector2};
@@ -9,7 +10,8 @@ use serde_json::Result;
 use std::f64::consts::PI;
 use std::fs;
 
-use closed_polyline::{dist, ClosedPolyline};
+use closed_polyline::{dist, farthest_pair, ClosedPolyline};
+use tools2d::{intersection_param, ray_intersect_aabb};
 
 fn main() {
     let data = fs::read_to_string("/home/matt/working/airfoil/data/E-E.json")
@@ -26,7 +28,22 @@ fn main() {
     nominal_2d.push(nominal_2d.first().unwrap().clone());
 
     let closed = ClosedPolyline::new(&nominal_2d, Some(1e-4)).unwrap();
-    for p in closed.line.points().iter() {
+    // for p in closed.line.points().iter() {
+    //     println!("{:?}", p);
+    // }
+
+    let (i0, i1) = farthest_pair(&closed.hull);
+    let p0 = &closed.hull.points()[i0];
+    let p1 = &closed.hull.points()[i1];
+    let rough_chord = Ray::new(*p0, p1 - p0);
+
+    let pc = rough_chord.point_at(0.5);
+    let cross_ray = Ray::new(
+        pc,
+        Isometry2::rotation(PI / 2.0) * rough_chord.dir.normalize(),
+    );
+    let intersections = closed.intersections(&cross_ray);
+    for p in intersections.iter() {
         println!("{:?}", p);
     }
 
@@ -50,82 +67,63 @@ fn main() {
     //     println!("{:?}", seg);
     // }
 }
+//
+// fn rough_cross_segments(
+//     rough_chord: &Ray<f64>,
+//     poly: &Polyline<f64>,
+//     n: usize,
+// ) -> Vec<Segment<f64>> {
+//     let mut result: Vec<Segment<f64>> = Vec::new();
+//     let rotate_90 = Isometry2::rotation(PI / 2.0);
+//     let rough_n = rotate_90 * rough_chord.dir.normalize();
+//     for i in 1..n {
+//         let p = rough_chord.point_at(i as f64 / n as f64);
+//         let cross_ray = Ray::new(p, rough_n);
+//         let ints = intersections(&cross_ray, &poly);
+//
+//         if ints.len() == 2 {
+//             result.push(Segment::new(ints[0], ints[1]));
+//         }
+//     }
+//
+//     result
+// }
 
-fn rough_cross_segments(
-    rough_chord: &Ray<f64>,
-    poly: &Polyline<f64>,
-    n: usize,
-) -> Vec<Segment<f64>> {
-    let mut result: Vec<Segment<f64>> = Vec::new();
-    let rotate_90 = Isometry2::rotation(PI / 2.0);
-    let rough_n = rotate_90 * rough_chord.dir.normalize();
-    for i in 1..n {
-        let p = rough_chord.point_at(i as f64 / n as f64);
-        let cross_ray = Ray::new(p, rough_n);
-        let ints = intersections(&cross_ray, &poly);
-
-        if ints.len() == 2 {
-            result.push(Segment::new(ints[0], ints[1]));
-        }
-    }
-
-    result
-}
-
-fn intersection_param(
-    a0: &Point2<f64>,
-    ad: &Vector2<f64>,
-    b0: &Point2<f64>,
-    bd: &Vector2<f64>,
-) -> Option<(f64, f64)> {
-    let det: f64 = bd.x * ad.y - bd.y * ad.x;
-    if det.abs() < 1e-6 {
-        return Option::None;
-    }
-
-    let dx = b0.x - a0.x;
-    let dy = b0.y - a0.y;
-
-    Some(((dy * bd.x - dx * bd.y) / det, (dy * ad.x - dx * ad.y) / det))
-}
-
-fn intersections(ray: &Ray<f64>, poly: &Polyline<f64>) -> Vec<Point2<f64>> {
-    let mut results: Vec<Point2<f64>> = Vec::new();
-    for (i, edge) in poly.edges().iter().enumerate() {
-        let p0 = &poly.points()[edge.indices.coords[0]];
-        let p1 = &poly.points()[edge.indices.coords[1]];
-        let d = p1 - p0;
-        let param = intersection_param(&p0, &d, &ray.origin, &ray.dir);
-        if param.is_some() {
-            let (u, v) = param.unwrap();
-            if 0.0 <= u && u <= 1.0 {
-                results.push(ray.origin + ray.dir * v);
-            }
-        }
-    }
-    results.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
-    remove_adjacent_duplicates(&mut results);
-    results
-}
-
-fn farthest_pair(hull: &ConvexPolygon<f64>) -> (usize, usize) {
-    let mut i0: usize = 0;
-    let mut i1: usize = 0;
-    let mut dist: f64 = 0.0;
-    // TODO: Switch to convex hull rotating calipers algorithm
-    for i in 0..hull.points().len() {
-        for j in 0..hull.points().len() {
-            let d: f64 = (hull.points()[i] - hull.points()[j]).norm();
-            if d > dist {
-                dist = d;
-                i0 = i;
-                i1 = j;
-            }
-        }
-    }
-
-    (i0, i1)
-}
+// fn intersection_param(
+//     a0: &Point2<f64>,
+//     ad: &Vector2<f64>,
+//     b0: &Point2<f64>,
+//     bd: &Vector2<f64>,
+// ) -> Option<(f64, f64)> {
+//     let det: f64 = bd.x * ad.y - bd.y * ad.x;
+//     if det.abs() < 1e-6 {
+//         return Option::None;
+//     }
+//
+//     let dx = b0.x - a0.x;
+//     let dy = b0.y - a0.y;
+//
+//     Some(((dy * bd.x - dx * bd.y) / det, (dy * ad.x - dx * ad.y) / det))
+// }
+//
+// fn intersections(ray: &Ray<f64>, poly: &Polyline<f64>) -> Vec<Point2<f64>> {
+//     let mut results: Vec<Point2<f64>> = Vec::new();
+//     for (i, edge) in poly.edges().iter().enumerate() {
+//         let p0 = &poly.points()[edge.indices.coords[0]];
+//         let p1 = &poly.points()[edge.indices.coords[1]];
+//         let d = p1 - p0;
+//         let param = intersection_param(&p0, &d, &ray.origin, &ray.dir);
+//         if param.is_some() {
+//             let (u, v) = param.unwrap();
+//             if 0.0 <= u && u <= 1.0 {
+//                 results.push(ray.origin + ray.dir * v);
+//             }
+//         }
+//     }
+//     results.sort_by(|a, b| a[0].partial_cmp(&b[0]).unwrap());
+//     remove_adjacent_duplicates(&mut results);
+//     results
+// }
 
 fn points_from_string(s: &str) -> Result<Vec<Point3<f64>>> {
     let mut raw_points: Vec<Point3<f64>> = Vec::new();
