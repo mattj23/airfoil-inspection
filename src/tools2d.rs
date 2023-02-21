@@ -3,6 +3,8 @@ use ncollide2d::na::{Isometry2, Point2, RealField, Vector2};
 use ncollide2d::partitioning::{VisitStatus, Visitor};
 use ncollide2d::query::Ray;
 use std::error::Error;
+use ncollide2d::shape::Polyline;
+use ncollide2d::partitioning::BVH;
 
 pub fn dist<N: RealField + Copy>(a: &Point2<N>, b: &Point2<N>) -> N {
     (a - b).norm()
@@ -75,6 +77,35 @@ where
     }
 }
 
+pub fn intersect_with_edge<N: RealField + Copy>(polyline: &Polyline<N>, ray: &Ray<N>, edge_index: usize) -> Option<Point2<N>> {
+    let edge = &polyline.edges()[edge_index];
+    let p0 = &polyline.points()[edge.indices.coords[0]];
+    let p1 = &polyline.points()[edge.indices.coords[1]];
+    let d = p1 - p0;
+    if let Some((u, v)) = intersection_param(&p0, &d, &ray.origin, &ray.dir) {
+        if N::from_f64(0.0).unwrap() <= u && u <= N::from_f64(1.0).unwrap() {
+            Some(ray.origin + ray.dir * v)
+        } else {
+            None
+        }
+    } else {
+        None
+    }
+}
+
+pub fn intersections<N: RealField + Copy>(polyline: &Polyline<N>, ray: &Ray<N>) -> Vec<Point2<N>> {
+    let mut results: Vec<Point2<N>> = Vec::new();
+    let mut collector: Vec<usize> = Vec::new();
+    let mut visitor = RayVisitor::new(ray, &mut collector);
+    polyline.bvt().visit(&mut visitor);
+    for i in collector.iter() {
+        if let Some(point) = intersect_with_edge(polyline, ray, *i) {
+            results.push(point);
+        }
+    }
+
+    results
+}
 #[cfg(test)]
 mod tests {
     use crate::tools2d::ray_intersect_aabb;

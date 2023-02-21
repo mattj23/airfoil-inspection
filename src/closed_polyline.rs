@@ -1,4 +1,4 @@
-use crate::tools2d::{intersection_param, RayVisitor};
+use crate::tools2d::{intersect_with_edge, intersection_param, intersections, RayVisitor};
 use nalgebra::Point;
 use ncollide2d::na::{Isometry2, Point2, Vector2};
 use ncollide2d::partitioning::BVH;
@@ -64,30 +64,7 @@ impl ClosedPolyline {
     }
 
     pub fn intersect_with_edge(&self, ray: &Ray<f64>, edge_index: usize) -> Option<Point2<f64>> {
-        let edge = &self.line.edges()[edge_index];
-        let p0 = &self.line.points()[edge.indices.coords[0]];
-        let p1 = &self.line.points()[edge.indices.coords[1]];
-        let d = p1 - p0;
-        // let param = intersection_param(&p0, &d, &ray.origin, &ray.dir);
-        // if param.is_some() {
-        //     let (u, v) = param.unwrap();
-        //     if 0.0 <= u && u <= 1.0 {
-        //         return Some(ray.origin + ray.dir * v)
-        //     }
-        //     None
-        // }
-        // else {
-        //     None
-        // }
-        if let Some((u, v)) = intersection_param(&p0, &d, &ray.origin, &ray.dir) {
-            if 0.0 <= u && u <= 1.0 {
-                Some(ray.origin + ray.dir * v)
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+        intersect_with_edge(&self.line, &ray, edge_index)
     }
 
     // pub fn naive_intersections(&self, ray: &Ray<f64>) -> Vec<Point2<f64>> {
@@ -102,17 +79,7 @@ impl ClosedPolyline {
     // }
 
     pub fn intersections(&self, ray: &Ray<f64>) -> Vec<Point2<f64>> {
-        let mut results: Vec<Point2<f64>> = Vec::new();
-        let mut collector: Vec<usize> = Vec::new();
-        let mut visitor = RayVisitor::new(ray, &mut collector);
-        self.line.bvt().visit(&mut visitor);
-        for i in collector.iter() {
-            if let Some(point) = self.intersect_with_edge(ray, *i) {
-                results.push(point);
-            }
-        }
-
-        results
+        intersections(&self.line, &ray)
     }
 }
 
