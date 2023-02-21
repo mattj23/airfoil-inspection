@@ -1,10 +1,10 @@
 use ncollide2d::bounding_volume::AABB;
 use ncollide2d::na::{Isometry2, Point2, RealField, Vector2};
+use ncollide2d::partitioning::BVH;
 use ncollide2d::partitioning::{VisitStatus, Visitor};
 use ncollide2d::query::Ray;
-use std::error::Error;
 use ncollide2d::shape::Polyline;
-use ncollide2d::partitioning::BVH;
+use std::error::Error;
 
 pub fn dist<N: RealField + Copy>(a: &Point2<N>, b: &Point2<N>) -> N {
     (a - b).norm()
@@ -77,7 +77,11 @@ where
     }
 }
 
-pub fn intersect_with_edge<N: RealField + Copy>(polyline: &Polyline<N>, ray: &Ray<N>, edge_index: usize) -> Option<Point2<N>> {
+pub fn intersect_with_edge<N: RealField + Copy>(
+    polyline: &Polyline<N>,
+    ray: &Ray<N>,
+    edge_index: usize,
+) -> Option<Point2<N>> {
     let edge = &polyline.edges()[edge_index];
     let p0 = &polyline.points()[edge.indices.coords[0]];
     let p1 = &polyline.points()[edge.indices.coords[1]];

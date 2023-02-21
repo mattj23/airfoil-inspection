@@ -1,4 +1,4 @@
-use crate::tools2d::{intersect_with_edge, intersection_param, intersections, RayVisitor};
+use crate::tools2d::{dist, intersect_with_edge, intersection_param, intersections};
 use nalgebra::Point;
 use ncollide2d::na::{Isometry2, Point2, Vector2};
 use ncollide2d::partitioning::BVH;
@@ -6,10 +6,6 @@ use ncollide2d::query::visitors::RayInterferencesCollector;
 use ncollide2d::query::{PointQuery, Ray, RayCast};
 use ncollide2d::shape::{ConvexPolygon, Polyline, Segment};
 use std::error::Error;
-
-pub fn dist(a: &Point2<f64>, b: &Point2<f64>) -> f64 {
-    (a - b).norm()
-}
 
 pub fn farthest_pair(hull: &ConvexPolygon<f64>) -> (usize, usize) {
     let mut i0: usize = 0;
@@ -28,6 +24,18 @@ pub fn farthest_pair(hull: &ConvexPolygon<f64>) -> (usize, usize) {
     }
 
     (i0, i1)
+}
+
+struct MeanSearchState {
+    fraction: f64,
+    distance: f64,
+    point: Point2<f64>,
+}
+
+pub struct MeanInteriorPoint {
+    pub center: Point2<f64>,
+    pub side0: Point2<f64>,
+    pub side1: Point2<f64>,
 }
 
 pub struct ClosedPolyline {
@@ -80,6 +88,54 @@ impl ClosedPolyline {
 
     pub fn intersections(&self, ray: &Ray<f64>) -> Vec<Point2<f64>> {
         intersections(&self.line, &ray)
+    }
+
+    pub fn mean_point(
+        &self,
+        p0: &Point2<f64>,
+        p1: &Point2<f64>,
+        tol: f64,
+    ) -> Option<MeanInteriorPoint> {
+        let mut positive = MeanSearchState {
+            fraction: 1.0,
+            distance: 0.0,
+            point: p1.clone(),
+        };
+        let mut negative = MeanSearchState {
+            fraction: 0.0,
+            distance: 0.0,
+            point: p0.clone(),
+        };
+        let ray = Ray::new(p0.clone(), p1 - p0);
+
+        let mut working: Point2<f64> = ray.point_at(0.5);
+        while (positive.fraction - negative.fraction) * ray.dir.norm() > tol {
+            let fraction = (positive.fraction + negative.fraction) * 0.5;
+            working = ray.point_at(fraction);
+
+            let closest = self
+                .line
+                .project_point(&Isometry2::<f64>::identity(), &working, false);
+
+            let to_closest = closest.point - working;
+            let distance = dist(&working, &closest.point);
+            if to_closest.dot(&ray.dir) > 0.0 {
+                // If this is true, then the closest point is in the direction of the ray normal
+                positive.point = closest.point.clone();
+                positive.fraction = fraction;
+                positive.distance = distance;
+            } else {
+                negative.point = closest.point.clone();
+                negative.fraction = fraction;
+                negative.distance = distance;
+            }
+        }
+
+        Some(MeanInteriorPoint {
+            center: working,
+            side0: negative.point,
+            side1: positive.point,
+        })
     }
 }
 
